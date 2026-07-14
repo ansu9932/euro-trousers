@@ -1,0 +1,3 @@
+export const MIGRATION_TEMPLATES = ['Item Master', 'HS Codes', 'Customers and Suppliers', 'Opening Warehouse Inventory', 'Opening Customs Stock', 'Declaration History', 'Purchase and Sales Records', 'Refund Records', 'Bank Guarantees'];
+export function validateImportRows(rows, required) { const errors = []; rows.forEach((row, index) => required.forEach(field => { if (row[field] === undefined || row[field] === '')
+    errors.push({ row: index + 2, field, code: 'REQUIRED', message: `${field} is required` }); })); return { totalRows: rows.length, validRows: rows.length - new Set(errors.map(e => e.row)).size, errors }; }

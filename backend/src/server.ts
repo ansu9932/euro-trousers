@@ -1,0 +1,27 @@
+import Fastify from 'fastify'
+import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
+import rateLimit from '@fastify/rate-limit'
+import jwt from '@fastify/jwt'
+import swagger from '@fastify/swagger'
+import swaggerUi from '@fastify/swagger-ui'
+import { z } from 'zod'
+import { calculateDutyAndVat, nextState, type DeclarationState } from './domain/workflow.js'
+
+const app=Fastify({logger:true,requestIdHeader:'x-request-id'})
+await app.register(helmet)
+await app.register(cors,{origin:(process.env.CORS_ORIGIN??'http://localhost:3000').split(','),credentials:true})
+await app.register(rateLimit,{max:200,timeWindow:'1 minute'})
+await app.register(jwt,{secret:process.env.JWT_ACCESS_SECRET??'development-secret-change-in-production'})
+await app.register(swagger,{openapi:{info:{title:'EURO TROUSERS Customs API',version:'1.0.0'},security:[{bearerAuth:[]}],components:{securitySchemes:{bearerAuth:{type:'http',scheme:'bearer',bearerFormat:'JWT'}}}}})
+await app.register(swaggerUi,{routePrefix:'/api/docs'})
+app.get('/health',async()=>({status:'ok',service:'customs-api',time:new Date().toISOString()}))
+app.post('/api/auth/login',{config:{rateLimit:{max:5,timeWindow:'15 minutes'}}},async(request,reply)=>{ const input=z.object({email:z.string().email(),password:z.string().min(10)}).parse(request.body); if(input.email!==(process.env.BOOTSTRAP_ADMIN_EMAIL??'admin@example.com')) return reply.code(401).send({error:'INVALID_CREDENTIALS'}); const token=app.jwt.sign({sub:'bootstrap-admin',role:'System Administrator',email:input.email},{expiresIn:'15m'}); return {accessToken:token,user:{name:'System Administrator',email:input.email,role:'System Administrator'}} })
+const declarations=[{id:'dec-1',number:'IMP-2026-0018',kind:'IMPORT',status:'L2_PENDING',partner:'Al Noor Textiles',valueAed:184250,dutyAed:9212.5,vatAed:9673.13,date:'2026-07-12'},{id:'dec-2',number:'EXP-2026-0011',kind:'EXPORT',status:'APPROVED',partner:'Gulf Retail LLC',valueAed:128400,dutyAed:0,vatAed:0,date:'2026-07-11'},{id:'dec-3',number:'TRF-2026-0007',kind:'TRANSFER',status:'ON_HOLD',partner:'SAIF Logistics FZE',valueAed:47600,dutyAed:0,vatAed:0,date:'2026-07-09'}]
+app.get('/api/dashboard',async()=>({kpis:{pendingApprovals:7,activeClearances:4,holds:2,expiringDocuments:5,dutyMtd:42870,stockVariance:1.8},monthly:[{month:'Feb',imports:9,exports:5},{month:'Mar',imports:7,exports:6},{month:'Apr',imports:11,exports:4},{month:'May',imports:8,exports:7},{month:'Jun',imports:10,exports:6},{month:'Jul',imports:6,exports:3}],declarations,alerts:[{severity:'critical',title:'Bank guarantee expires in 6 days',detail:'BG-2025-004 · AED 250,000'},{severity:'warning',title:'Container free days end tomorrow',detail:'MSCU 7284910 · Jebel Ali'},{severity:'info',title:'3 declarations await your approval',detail:'L2 review queue'}]}))
+app.get('/api/declarations',async(request)=>{ const q=z.object({status:z.string().optional(),kind:z.string().optional()}).parse(request.query); return {data:declarations.filter(d=>(!q.status||d.status===q.status)&&(!q.kind||d.kind===q.kind)),total:declarations.length} })
+app.post('/api/calculations/duty',async(request)=>{ const i=z.object({valueAed:z.number().nonnegative(),dutyRate:z.number().min(0).max(100).default(5),vatRate:z.number().min(0).max(100).default(5),exempt:z.boolean().default(false),vatExempt:z.boolean().default(false)}).parse(request.body); return calculateDutyAndVat(i.valueAed,i.dutyRate,i.vatRate,i.exempt,i.vatExempt) })
+app.post('/api/workflow/next',async(request)=>{ const i=z.object({current:z.string(),dutyAed:z.number(),vatAed:z.number(),valueAed:z.number(),approvalThresholdAed:z.number().default(100000)}).parse(request.body); return {state:nextState(i.current as DeclarationState,i)} })
+app.get('/api/modules',async()=>({modules:['Customs Master','Import Declaration','Export Declaration','Transfer Declaration','Duty, VAT & Finance','Customs Documents','Container Management','Inspection & Hold','Clearance','Stock Reconciliation','Reports','Integration'],roles:['System Administrator','Customs Manager','Documentation Officer','Data Entry Officer','Warehouse Officer','Finance Officer','Logistics Officer','General Manager','Viewer','Auditor']}))
+app.setErrorHandler((error,request,reply)=>{ request.log.error(error); const validation=error instanceof z.ZodError; reply.code(validation?400:500).send({error:validation?'VALIDATION_ERROR':'INTERNAL_ERROR',message:validation?'Request validation failed':'Unexpected server error',requestId:request.id,issues:validation?error.issues:undefined}) })
+await app.listen({port:Number(process.env.PORT??4000),host:'0.0.0.0'})
