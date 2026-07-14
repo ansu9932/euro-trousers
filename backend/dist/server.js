@@ -14,6 +14,8 @@ import { auditLog, companySettings, declarationLines, declarations, masterRecord
 import { authenticate, authorize, hashToken, issueSession, rotateSession, verifyPassword } from './security.js';
 import { calculateDutyAndVat, nextState, states } from './domain/workflow.js';
 import operationsRoutes from './routes/operations.js';
+import documentRoutes from './routes/documents.js';
+import integrationRoutes from './routes/integrations.js';
 const app = Fastify({ logger: true, requestIdHeader: 'x-request-id', trustProxy: true });
 await app.register(helmet);
 await app.register(cookie);
@@ -84,6 +86,8 @@ else
 app.get('/api/audit', { preHandler: authorize(app, 'audit', 'view') }, async (request) => { const query = pageSchema.extend({ entity: z.string().optional(), entityId: z.string().optional() }).parse(request.query); const where = and(query.entity ? eq(auditLog.entity, query.entity) : undefined, query.entityId ? eq(auditLog.entityId, query.entityId) : undefined); const data = await db.select().from(auditLog).where(where).orderBy(desc(auditLog.createdAt)).limit(query.pageSize).offset((query.page - 1) * query.pageSize); return { data, page: query.page, pageSize: query.pageSize }; });
 app.get('/api/calculations/duty', { preHandler: authenticate }, async (request) => { const input = z.object({ valueAed: z.coerce.number().nonnegative(), dutyRate: z.coerce.number().min(0).max(100).default(5), vatRate: z.coerce.number().min(0).max(100).default(5), exempt: z.coerce.boolean().default(false), vatExempt: z.coerce.boolean().default(false) }).parse(request.query); return calculateDutyAndVat(input.valueAed, input.dutyRate, input.vatRate, input.exempt, input.vatExempt); });
 await app.register(operationsRoutes, { prefix: '/api' });
+await app.register(documentRoutes, { prefix: '/api' });
+await app.register(integrationRoutes, { prefix: '/api' });
 app.get('/api/modules', { preHandler: authenticate }, async () => ({ modules: ['Customs Master', 'Import Declaration', 'Export Declaration', 'Transfer Declaration', 'Duty, VAT & Finance', 'Customs Documents', 'Container Management', 'Inspection & Hold', 'Clearance', 'Stock Reconciliation', 'Reports', 'Integration'], roles: ['System Administrator', 'Customs Manager', 'Documentation Officer', 'Data Entry Officer', 'Warehouse Officer', 'Finance Officer', 'Logistics Officer', 'General Manager', 'Viewer', 'Auditor'] }));
 app.setErrorHandler((error, request, reply) => { request.log.error(error); const validation = error instanceof z.ZodError, status = error.statusCode ?? (validation ? 400 : 500); reply.code(status).send({ error: validation ? 'VALIDATION_ERROR' : status === 403 ? 'FORBIDDEN' : status === 401 ? 'UNAUTHORIZED' : status === 404 ? 'NOT_FOUND' : 'REQUEST_ERROR', message: validation ? 'Request validation failed' : status >= 500 ? 'Unexpected server error' : error.message, requestId: request.id, issues: validation ? error.issues : undefined }); });
 await app.listen({ port: Number(process.env.PORT ?? 4000), host: '0.0.0.0' });

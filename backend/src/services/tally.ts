@@ -1,0 +1,3 @@
+import { XMLBuilder } from 'fast-xml-parser'
+
+export function tallyVoucherXml(input:{date:string;number:string;party:string;ledger:string;amount:number;narration?:string}){const voucher={ENVELOPE:{HEADER:{TALLYREQUEST:'Import Data'},BODY:{IMPORTDATA:{REQUESTDESC:{REPORTNAME:'Vouchers'},REQUESTDATA:{TALLYMESSAGE:{VOUCHER:{'@_VCHTYPE':'Journal','@_ACTION':'Create',DATE:input.date.replaceAll('-',''),VOUCHERNUMBER:input.number,NARRATION:input.narration??'',PARTYLEDGERNAME:input.party,'ALLLEDGERENTRIES.LIST':[{LEDGERNAME:input.party,ISDEEMEDPOSITIVE:'Yes',AMOUNT:-Math.abs(input.amount)},{LEDGERNAME:input.ledger,ISDEEMEDPOSITIVE:'No',AMOUNT:Math.abs(input.amount)}]}}}}}}};return new XMLBuilder({ignoreAttributes:false,format:true}).build(voucher)}
